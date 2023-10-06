@@ -2,7 +2,7 @@ import gradio as gr
 import modules.shared as shared
 from pathlib import Path
 import json
-
+from functools import partial
 import os
 
 
@@ -17,6 +17,7 @@ data_index = 0
 left_key = 'instruction'
 right_key = 'output'
 current_input_file = None
+backup_file = None
 
 # Function to load JSON data safely
 def load_json_data(file):
@@ -32,22 +33,22 @@ def load_json_data(file):
                 first_item_keys = list(data[0].keys())
                 data_index = 0
                 print(f"Keys in the JSON: {first_item_keys}")
-                yield f"JSON data loaded successfully. Keys in the JSON: {first_item_keys}"
+                return f"JSON data loaded successfully. Keys in the JSON: {first_item_keys}"
                 #for key in first_item_keys:
                 #    print(key)
             else:
                 current_input_file = None
                 print("JSON data is empty or couldn't be loaded.")
-                yield "JSON data is empty or couldn't be loaded."
+                return "JSON data is empty or couldn't be loaded."
 
     except FileNotFoundError:
         current_input_file = None
         print("Error: JSON file not found.")
-        yield "JSON file not found."
+        return "JSON file not found."
     except json.JSONDecodeError:
         current_input_file = None
         print("Error: JSON file is not valid JSON.")
-        yield "JSON file is not valid JSON."
+        return "JSON file is not valid JSON."
 
 
 def find_next_diff():
@@ -153,6 +154,70 @@ def find_max_char_diff(characters):
     yield f"Current ndex: {data_index}/{len(data)-1}"  
     
     return 
+
+def search_and_update_data_index(search_text):
+    global data
+    global left_key
+    global data_index
+
+    if data and isinstance(data, list) and 0 <= data_index < len(data):
+        if data and isinstance(data, list) and data_index < len(data) - 1:
+            data_index += 1
+
+        for index, item in enumerate(data[data_index:], start=data_index):
+            instruction_value = item.get(left_key, '')
+
+            # Check if the search_text is present in the instruction_value
+            if search_text in instruction_value:
+                data_index = index  # Update the data_index
+                yield f"Found '{search_text}' in instruction at index: {data_index}/{len(data) - 1}"
+                return
+
+    yield f"(Text not found) Current index: {data_index}/{len(data) - 1}"
+    return
+
+def search_and_update_data_index2(search_text):
+    global data
+    global left_key
+    global data_index
+
+    if data and isinstance(data, list) and 0 <= data_index < len(data):
+        if data and isinstance(data, list) and data_index < len(data) - 1:
+            data_index += 1
+
+        for index, item in enumerate(data[data_index:], start=data_index):
+            output_value = item.get(right_key, '')
+
+            # Check if the search_text is present in the instruction_value
+            if search_text in output_value:
+                data_index = index  # Update the data_index
+                yield f"Found '{search_text}' in output at index: {data_index}/{len(data) - 1}"
+                return
+
+    yield f"(Text not found) Current index: {data_index}/{len(data) - 1}"
+    return
+
+def search_and_update_data_index3(search_text):
+    global data
+    global left_key
+    global data_index
+
+    if data and isinstance(data, list) and 0 <= data_index < len(data):
+        if data and isinstance(data, list) and data_index < len(data) - 1:
+            data_index += 1
+
+        for index, item in enumerate(data[data_index:], start=data_index):
+            output_value = item.get(right_key, '')
+            instruction_value = item.get(left_key, '')
+
+            # Check if the search_text is present in the instruction_value
+            if search_text in output_value or search_text in instruction_value:
+                data_index = index  # Update the data_index
+                yield f"Found '{search_text}' in item at index: {data_index}/{len(data) - 1}"
+                return
+
+    yield f"(Text not found) Current index: {data_index}/{len(data) - 1}"
+    return
 
 
 def calc_max_token_fn():
@@ -318,6 +383,63 @@ def save_updated_data_to_file():
     else:
         yield "No data to save or current input file is missing.",None
 
+def save_updated_data_to_backup_file():
+    global data
+    global backup_file
+    
+    # Check if data is not None, current_input_file is not None, and is a list
+    if data and isinstance(data, list):
+
+        if not Path('logs').exists():
+            Path('logs').mkdir()
+
+        filename = "json_backup.json"
+        backup_file = Path(f'logs/{filename}')
+
+
+        try:
+            with open(backup_file, 'w') as json_file:
+                json.dump(data, json_file, indent=4)  # Save the updated data back to the file
+            yield f"Updated JSON data saved to {backup_file}."
+        except FileNotFoundError:
+            yield f"Error: File not found: {backup_file}."
+        except json.JSONDecodeError:
+            yield f"Error: Invalid JSON data in file: {backup_file}."
+        except Exception as e:
+            yield f"An error occurred while saving the data: {str(e)}."
+    else:
+        yield "No data to save or current input file is missing."
+
+
+def load_backup_data():
+    global backup_file
+    if backup_file:
+        ret = load_json_data(backup_file)
+        yield ret
+    else:
+        yield "No backup file has been created yet"
+
+
+def create_delete_buttons(delete_function, outputs):
+    del_button = gr.Button('Delete', elem_classes="small-button", variant='secondary')
+    del_button_yes = gr.Button('Yes',visible=False, elem_classes="small-button", variant='stop')
+    del_button_no = gr.Button('No',visible=False, elem_classes="small-button", variant='primary')
+
+    def yes_no_show():
+        return gr.update(visible = True),gr.update(visible = True)
+
+    def yes_no_hide():
+        return gr.update(visible = False),gr.update(visible = False)
+
+    del_button.click(yes_no_show,None,[del_button_yes,del_button_no])
+
+    del_button_yes.click(delete_function,None,None).then(yes_no_hide,None,[del_button_yes,del_button_no]).then(
+        get_instruction_and_output,None,outputs) #[left_text,right_text]
+
+    del_button_no.click(yes_no_hide,None,[del_button_yes,del_button_no])
+
+    return del_button, del_button_yes, del_button_no    
+
 def ui():
     global params
 
@@ -328,7 +450,7 @@ def ui():
                     upload_session_file = gr.File(type='file', file_types=['.json'], label='Load JSON')
                     with gr.Row():    
                         json_file = gr.Textbox(label="JSON File", value='')
-                        json_file_load = gr.Button("Load",elem_classes="small-button")
+                        json_file_load = gr.Button("Load JSON",elem_classes="small-button",  variant='primary')
                 with gr.Column():
                     instruct = gr.Markdown('load file')
     
@@ -345,25 +467,36 @@ def ui():
                 prev_prevbtn = gr.Button('<<', variant='primary')
                 prev_nextbtn = gr.Button('>>',variant='primary')
             with gr.Row():
-                gr.Markdown("Tools")   
-            with gr.Row():
-                rewind_btn = gr.Button('Goto 0', elem_classes="small-button")
-                find_next = gr.Button('Next 50% I/O Diff', elem_classes="small-button") 
-                calc_max_token = gr.Button('Find longest item', elem_classes="small-button")   
-            with gr.Row():
-                length_char = gr.Slider(label='Number of characters [NC]', minimum=1, maximum=2048, value=256, step=1)
-                find_min_char = gr.Button("[Out] Less than NC", elem_classes="small-button", variant='secondary')
-                find_max_char = gr.Button("[Out] More than NC", elem_classes="small-button", variant='secondary')    
+                with gr.Accordion("Tools"):   
+                    with gr.Row():
+                        rewind_btn = gr.Button('Go to First item', elem_classes="small-button")
+                        find_next = gr.Button('Next 50% I/R Diff', elem_classes="small-button") 
+                        calc_max_token = gr.Button('Find longest item', elem_classes="small-button")   
+                    with gr.Row():
+                        length_char = gr.Slider(label='Number of characters [NC]', minimum=1, maximum=2048, value=256, step=1)
+                        find_min_char = gr.Button("[Result] Less than NC", elem_classes="small-button", variant='secondary')
+                        find_max_char = gr.Button("[Result] More than NC", elem_classes="small-button", variant='secondary')    
+                    with gr.Row():
+                        search_text = gr.Textbox(label='Search', value='', lines=1)
+                        searchA = gr.Button("In Instruction", elem_classes="small-button", variant='secondary')
+                        searchB = gr.Button("In Result", elem_classes="small-button", variant='secondary')
+                        searchAB = gr.Button("In Instr or Result", elem_classes="small-button", variant='secondary')
+                    
 
         with gr.Column():
             with gr.Row():
                 insert_button = gr.Button('Insert', elem_classes="small-button", variant='secondary')
                 del_button = gr.Button('Delete', elem_classes="small-button", variant='secondary')
-                del_button_sure = gr.Button('Yes',visible=False, elem_classes="small-button", variant='stop')
-                del_button_sure_no = gr.Button('No',visible=False, elem_classes="small-button", variant='stop')
+                del_button_yes = gr.Button('Yes',visible=False, elem_classes="small-button", variant='stop')
+                del_button_no = gr.Button('No',visible=False, elem_classes="small-button", variant='primary')
                 save_btn = gr.Button('Save JSON', elem_classes="small-button",variant='primary')
                 save_file_down = gr.File(type='file', file_types=['.json'], visible = False)
-
+            with gr.Row():
+                backup_btn = gr.Button("Backup", elem_classes="small-button", variant='secondary')
+                restore_btn = gr.Button("Restore", elem_classes="small-button", variant='secondary')
+                restore_button_yes = gr.Button('Yes',visible=False, elem_classes="small-button", variant='stop')
+                restore_button_no = gr.Button('No',visible=False, elem_classes="small-button", variant='primary')
+ 
     def file_dropped(file_obj):
         #file_obj.name orig_name
         global current_input_file
@@ -409,18 +542,18 @@ def ui():
     left_text.change(set_instruction_and_output,[left_text,right_text],None)
     right_text.change(set_instruction_and_output,[left_text,right_text],None)
 
-    def delete_show():
-        return gr.update(visible = True),gr.update(visible = True)
+    def yes_no_show(text = ''):
+        return gr.update(visible = True),gr.update(visible = True),text
 
-    del_button.click(delete_show,None,[del_button_sure,del_button_sure_no])
-
-    def delete_hide():
+    def yes_no_hide():
         return gr.update(visible = False),gr.update(visible = False)
 
-    del_button_sure.click(delete_current_item,None,None).then(delete_hide,None,[del_button_sure,del_button_sure_no]).then(
+    del_button.click(partial(yes_no_show, text='Delete current item?'),None,[del_button_yes,del_button_no,instruct])
+
+    del_button_yes.click(delete_current_item,None,None).then(yes_no_hide,None,[del_button_yes,del_button_no]).then(
         get_instruction_and_output,None,[left_text,right_text])
     
-    del_button_sure_no.click(delete_hide,None,[del_button_sure,del_button_sure_no])
+    del_button_no.click(yes_no_hide,None,[del_button_yes,del_button_no])
 
     insert_button.click(insert_item,None,None).then(get_instruction_and_output,None,[left_text,right_text])
 
@@ -434,4 +567,17 @@ def ui():
 
 
     calc_max_token.click(calc_max_token_fn,None,instruct).then(get_instruction_and_output,None,[left_text,right_text])
+
+    searchA.click(search_and_update_data_index,search_text,instruct).then(get_instruction_and_output,None,[left_text,right_text])
+    searchB.click(search_and_update_data_index2,search_text,instruct).then(get_instruction_and_output,None,[left_text,right_text])
+    searchAB.click(search_and_update_data_index3,search_text,instruct).then(get_instruction_and_output,None,[left_text,right_text])
+
+    backup_btn.click(save_updated_data_to_backup_file,None,instruct)
+    #restore_btn.click(load_backup_data,None,instruct).then(get_instruction_and_output,None,[left_text,right_text])
+
+    restore_btn.click(partial(yes_no_show, text='Restore from backup?'),None,[restore_button_yes,restore_button_no,instruct])
+
+    restore_button_yes.click(load_backup_data,None,instruct).then(yes_no_hide,None,[restore_button_yes,restore_button_no]).then(
+        get_instruction_and_output,None,[left_text,right_text])
     
+    restore_button_no.click(yes_no_hide,None,[restore_button_yes,restore_button_no])
