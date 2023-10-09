@@ -103,17 +103,14 @@ def find_min_char_diff(characters):
             instruction_value = item.get(left_key, '')
             output_value = item.get(right_key, '')
 
-            # Calculate the length difference
-            length_diff = len(output_value)
-
             len1 = len(instruction_value)
             len2 = len(output_value)
             # Check if the length difference is greater than or equal to 50% of the shorter length
             
             
-            if length_diff < chars:
+            if len2 < chars or len1 < chars:
                 data_index = index  # Update the data_index
-                yield f"OUT {len2} at index: {data_index}/{len(data)-1}"      
+                yield f"IN {len1} OUT {len2} at index: {data_index}/{len(data)-1}"      
                 return
 
     yield f"Current ndex: {data_index}/{len(data)-1}"          
@@ -138,17 +135,14 @@ def find_max_char_diff(characters):
             instruction_value = item.get(left_key, '')
             output_value = item.get(right_key, '')
 
-            # Calculate the length difference
-            length_diff = len(output_value)
-
             len1 = len(instruction_value)
             len2 = len(output_value)
             # Check if the length difference is greater than or equal to 50% of the shorter length
             
             
-            if length_diff > chars:
+            if len1 > chars or len2 > chars:
                 data_index = index  # Update the data_index
-                yield f"OUT {len2} at index: {data_index}/{len(data)-1}"              
+                yield f"IN {len1} OUT {len2} at index: {data_index}/{len(data)-1}"              
                 return
 
     yield f"Current ndex: {data_index}/{len(data)-1}"  
@@ -229,6 +223,7 @@ def calc_max_token_fn():
     data_index = 0
     data_idx_atMax = 0
     max_token = 0
+    max_tokensr = ''
 
     if data and isinstance(data, list) and 0 <= data_index < len(data):
 
@@ -247,10 +242,17 @@ def calc_max_token_fn():
             if max_token < encoded_tokensT:
                 max_token = encoded_tokensT
                 data_idx_atMax = index
+                max_tokensr = instruction_value+output_value
 
     data_index = data_idx_atMax
 
-    yield f"Size MAx [IN+OUT] {max_token} at index: {data_idx_atMax}/{len(data)-1}"              
+    tokenlength = 0
+    if shared.tokenizer and max_tokensr!='':
+        encoded_tokens  = shared.tokenizer.encode(str(max_tokensr))
+        tokenlength = len(encoded_tokens)
+
+
+    yield f"Size MAx [IN+OUT] {max_token} char = {tokenlength} tokens (+a few for instruction) at index: {data_idx_atMax}/{len(data)-1}"              
     return 
 # Function to get 'instruction' and 'output' values
 def get_instruction_and_output():
@@ -467,6 +469,8 @@ def ui():
                 prev_prevbtn = gr.Button('<<', variant='primary')
                 prev_nextbtn = gr.Button('>>',variant='primary')
             with gr.Row():
+                gr_sliderPos = gr.Slider(label='Position', minimum=0, maximum=100, value=0, step=1)
+            with gr.Row():
                 with gr.Accordion("Tools"):   
                     with gr.Row():
                         rewind_btn = gr.Button('Go to First item', elem_classes="small-button")
@@ -474,8 +478,9 @@ def ui():
                         calc_max_token = gr.Button('Find longest item', elem_classes="small-button")   
                     with gr.Row():
                         length_char = gr.Slider(label='Number of characters [NC]', minimum=1, maximum=2048, value=256, step=1)
-                        find_min_char = gr.Button("[Result] Less than NC", elem_classes="small-button", variant='secondary')
-                        find_max_char = gr.Button("[Result] More than NC", elem_classes="small-button", variant='secondary')    
+                        find_min_char = gr.Button("[I/R] Less than NC", elem_classes="small-button", variant='secondary')
+                        find_max_char = gr.Button("[I/R] More than NC", elem_classes="small-button", variant='secondary')
+                            
                     with gr.Row():
                         search_text = gr.Textbox(label='Search', value='', lines=1)
                         searchA = gr.Button("In Instruction", elem_classes="small-button", variant='secondary')
@@ -510,7 +515,21 @@ def ui():
                 
     upload_session_file.change(file_dropped,upload_session_file,json_file)
 
-    json_file_load.click(load_json_data,json_file,instruct).then(get_instruction_and_output,None,[left_text,right_text])
+    def adjust_slider_params():
+        global data_index
+        global data
+        max = 0
+        if data:
+            max = len(data)
+
+        return gr.Slider.update(value = data_index, minimum=0, maximum=len(data)-1, step=1)
+
+    def adjust_slider_value():
+        global data_index
+        global data
+        return gr.update(value = data_index)
+
+    json_file_load.click(load_json_data,json_file,instruct).then(get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_params,None,gr_sliderPos)
 
     def update_lk(lk):
         global left_key
@@ -531,8 +550,10 @@ def ui():
 
     right_key_name.change(update_rk,right_key_name,instruct,queue=False)    
 
-    prev_prevbtn.click(move_index_backward,None,instruct).then(get_instruction_and_output,None,[left_text,right_text])
-    prev_nextbtn.click(move_index_forward,None,instruct).then(get_instruction_and_output,None,[left_text,right_text])
+    prev_prevbtn.click(move_index_backward,None,instruct).then(get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_value,None,gr_sliderPos, show_progress=False)
+
+    prev_nextbtn.click(move_index_forward,None,instruct).then(get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_value,None,gr_sliderPos, show_progress=False)
+
     
     def make_file_visible():
         return gr.update(visible = True)
@@ -551,26 +572,34 @@ def ui():
     del_button.click(partial(yes_no_show, text='Delete current item?'),None,[del_button_yes,del_button_no,instruct])
 
     del_button_yes.click(delete_current_item,None,None).then(yes_no_hide,None,[del_button_yes,del_button_no]).then(
-        get_instruction_and_output,None,[left_text,right_text])
+        get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_params,None,gr_sliderPos, show_progress=False)
     
     del_button_no.click(yes_no_hide,None,[del_button_yes,del_button_no])
 
-    insert_button.click(insert_item,None,None).then(get_instruction_and_output,None,[left_text,right_text])
+    insert_button.click(insert_item,None,None).then(get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_params,None,gr_sliderPos, show_progress=False)
 
-    rewind_btn.click(rewindzero,None,instruct).then(get_instruction_and_output,None,[left_text,right_text])
-
-    find_next.click(find_next_diff,None,instruct).then(get_instruction_and_output,None,[left_text,right_text])
+    rewind_btn.click(rewindzero,None,instruct).then(get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_value,None,gr_sliderPos, show_progress=False)
 
 
-    find_min_char.click(find_min_char_diff,length_char,instruct).then(get_instruction_and_output,None,[left_text,right_text])
-    find_max_char.click(find_max_char_diff,length_char,instruct).then(get_instruction_and_output,None,[left_text,right_text])
+    find_next.click(find_next_diff,None,instruct).then(get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_value,None,gr_sliderPos, show_progress=False)
 
 
-    calc_max_token.click(calc_max_token_fn,None,instruct).then(get_instruction_and_output,None,[left_text,right_text])
 
-    searchA.click(search_and_update_data_index,search_text,instruct).then(get_instruction_and_output,None,[left_text,right_text])
-    searchB.click(search_and_update_data_index2,search_text,instruct).then(get_instruction_and_output,None,[left_text,right_text])
-    searchAB.click(search_and_update_data_index3,search_text,instruct).then(get_instruction_and_output,None,[left_text,right_text])
+    find_min_char.click(find_min_char_diff,length_char,instruct).then(get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_value,None,gr_sliderPos, show_progress=False)
+
+    find_max_char.click(find_max_char_diff,length_char,instruct).then(get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_value,None,gr_sliderPos, show_progress=False)
+
+
+
+    calc_max_token.click(calc_max_token_fn,None,instruct).then(get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_value,None,gr_sliderPos, show_progress=False)
+
+
+    searchA.click(search_and_update_data_index,search_text,instruct).then(get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_value,None,gr_sliderPos, show_progress=False)
+
+    searchB.click(search_and_update_data_index2,search_text,instruct).then(get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_value,None,gr_sliderPos, show_progress=False)
+
+    searchAB.click(search_and_update_data_index3,search_text,instruct).then(get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_value,None,gr_sliderPos, show_progress=False)
+
 
     backup_btn.click(save_updated_data_to_backup_file,None,instruct)
     #restore_btn.click(load_backup_data,None,instruct).then(get_instruction_and_output,None,[left_text,right_text])
@@ -578,6 +607,20 @@ def ui():
     restore_btn.click(partial(yes_no_show, text='Restore from backup?'),None,[restore_button_yes,restore_button_no,instruct])
 
     restore_button_yes.click(load_backup_data,None,instruct).then(yes_no_hide,None,[restore_button_yes,restore_button_no]).then(
-        get_instruction_and_output,None,[left_text,right_text])
+        get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_params,None,gr_sliderPos, show_progress=False)
     
     restore_button_no.click(yes_no_hide,None,[restore_button_yes,restore_button_no])
+
+    def slider_change_value(value):
+        global data_index
+        global data
+        if value<0:
+            data_index = 0
+        elif value>len(data)-1:
+            data_index = len(data)-1
+        else:
+            data_index = value
+        
+        print("change value")
+
+    gr_sliderPos.release(slider_change_value,gr_sliderPos,None).then(get_instruction_and_output,None,[left_text,right_text])
