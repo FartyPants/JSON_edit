@@ -4,7 +4,7 @@ from pathlib import Path
 import json
 from functools import partial
 import os
-
+import re
 
 params = {
         "display_name": "JSON edit",
@@ -26,7 +26,7 @@ def load_json_data(file):
     global current_input_file
     try:
         
-        with open(file, 'r') as json_file:
+        with open(file, 'r', encoding='utf-8') as json_file:
             current_input_file = file
             data = json.load(json_file)
             if data:
@@ -83,6 +83,246 @@ def find_next_diff():
 
     yield f"Lenghth {len1} vs {len2} at index: {data_index}/{len(data)-1}"              
     return 
+
+def find_consecutive_repeated_words(text, min_repetitions=3):
+    # Tokenize the text into words
+    words = re.findall(r'\b\w+\b', text.lower())
+
+    # Find consecutive repeated words
+    consecutive_repeated_words = []
+    current_word = None
+    consecutive_count = 1
+
+    for word in words[1:]:
+        if word == current_word:
+            consecutive_count += 1
+        else:
+            consecutive_count = 1
+
+        if consecutive_count >= min_repetitions:
+            consecutive_repeated_words.append(word)
+
+        current_word = word
+
+    return consecutive_repeated_words
+
+def find_next_conseq():
+    global data
+    global left_key
+    global right_key
+    global data_index
+
+    conseq_words = []
+
+    found_in = "None"
+    
+
+    if data and isinstance(data, list) and 0 <= data_index < len(data):
+
+        if data and isinstance(data, list) and data_index < len(data) - 1:
+            data_index += 1
+
+        for index, item in enumerate(data[data_index:], start=data_index):
+            instruction_value = item.get(left_key, '')
+            output_value = item.get(right_key, '')
+
+            conseq_words = find_consecutive_repeated_words(instruction_value)
+            found_in = "None"
+            if len(conseq_words)>0:
+                found_in = "Input"
+                data_index = index  # Update the data_index
+                break
+
+            conseq_words = find_consecutive_repeated_words(output_value)
+
+            if len(conseq_words)>0:
+                found_in = "Output"
+                data_index = index  # Update the data_index
+                break
+
+
+    yield f"Found Repeating words {conseq_words} in {found_in} at index: {data_index}/{len(data)-1}"              
+    return 
+
+
+def find_next_diff75(threshold):
+    global data
+    global left_key
+    global right_key
+    global data_index
+
+    len1 = 0
+    len2 = 0
+    lengPerf = 0.0
+
+    if data and isinstance(data, list) and 0 <= data_index < len(data):
+
+        if data and isinstance(data, list) and data_index < len(data) - 1:
+            data_index += 1
+
+        for index, item in enumerate(data[data_index:], start=data_index):
+            instruction_value = item.get(left_key, '')
+            output_value = item.get(right_key, '')
+
+            # Calculate the length difference
+            length_diff = abs(len(instruction_value) - len(output_value))
+
+            len1 = len(instruction_value)
+            len2 = len(output_value)
+            # Check if the length difference is greater than or equal to 50% of the shorter length
+            min_length = min(len(instruction_value), len(output_value))
+            max_length = max(len(instruction_value), len(output_value))
+            if max_length == 0:
+                max_length = 1
+
+            lengPerf = float(float(min_length)/float(max_length))
+            
+            if lengPerf <= threshold:
+                data_index = index  # Update the data_index
+                break
+
+    yield f"Lenghth {len1} vs {len2} DIFF {lengPerf} at index: {data_index}/{len(data)-1}"              
+    return 
+
+def find_next_diff_del():
+    global data
+    global left_key
+    global right_key
+    global data_index
+    global backup_file
+
+    data_index = 0
+    delnum = 0
+
+   
+    # Check if data is not None, current_input_file is not None, and is a list
+    if data and isinstance(data, list):
+
+        if not Path('logs').exists():
+            Path('logs').mkdir()
+
+        filename = "json_backup.json"
+        backup_file = Path(f'logs/{filename}')
+        try:
+            with open(backup_file, 'w', encoding='utf-8') as json_file:
+                json.dump(data, json_file, indent=4)  # Save the updated data back to the file
+            print (f"Updated JSON data saved to {backup_file}.")
+        except:
+            print("Error: Couldn't save the JSON data to a backup file.")
+ 
+
+    if data and isinstance(data, list):
+        index_to_delete = []
+
+        for index, item in enumerate(data[data_index:], start=data_index):
+            instruction_value = item.get(left_key, '')
+            output_value = item.get(right_key, '')
+
+            # Calculate the length difference
+            length_diff = abs(len(instruction_value) - len(output_value))
+
+            # Check if the length difference is greater than or equal to 50% of the shorter length
+            min_length = min(len(instruction_value), len(output_value))
+
+            if length_diff >= 0.5 * min_length:
+                delnum += 1
+                index_to_delete.append(index)
+
+        # Delete items from data
+        for i in reversed(index_to_delete):
+            data.pop(i)
+
+    print(f"Deleted {delnum} items")
+    yield f"(Backup created) Deleted {delnum} items"
+    return
+
+def swapinout():
+    global data
+    global left_key
+    global right_key
+    global data_index
+    global backup_file
+
+    data_index = 0
+
+
+    if data and isinstance(data, list):
+        swapped_data = []
+
+
+        for index, item in enumerate(data):
+            instruction_value = item.get(left_key, '')
+            output_value = item.get(right_key, '')
+
+            # Swap values and store in a new dictionary
+            swapped_item = {left_key: output_value, right_key: instruction_value}
+            swapped_data.append(swapped_item)
+
+        # Replace the original 'data' with 'swapped_data'
+        data = swapped_data
+
+        print(f"Swapped {left_key} <<->> {right_key}")
+    yield f"Swapped {left_key} <<->> {right_key}"
+    return
+
+def find_next_diff_del75(threshold):
+    global data
+    global left_key
+    global right_key
+    global data_index
+    global backup_file
+
+    data_index = 0
+    delnum = 0
+
+   
+    # Check if data is not None, current_input_file is not None, and is a list
+    if data and isinstance(data, list):
+
+        if not Path('logs').exists():
+            Path('logs').mkdir()
+
+        filename = "json_backup.json"
+        backup_file = Path(f'logs/{filename}')
+        try:
+            with open(backup_file, 'w',encoding='utf-8') as json_file:
+                json.dump(data, json_file, indent=4)  # Save the updated data back to the file
+            print (f"Updated JSON data saved to {backup_file}.")
+        except:
+            print("Error: Couldn't save the JSON data to a backup file.")
+ 
+
+    if data and isinstance(data, list):
+        index_to_delete = []
+
+        for index, item in enumerate(data[data_index:], start=data_index):
+            instruction_value = item.get(left_key, '')
+            output_value = item.get(right_key, '')
+
+            # Calculate the length difference
+            length_diff = abs(len(instruction_value) - len(output_value))
+
+            # Check if the length difference is greater than or equal to 50% of the shorter length
+            min_length = min(len(instruction_value), len(output_value))
+            max_length = max(len(instruction_value), len(output_value))
+            if max_length == 0:
+                max_length = 1
+
+            lengPerf = float(float(min_length)/float(max_length))
+            
+            if lengPerf <= threshold:
+                delnum += 1
+                index_to_delete.append(index)
+
+        # Delete items from data
+        for i in reversed(index_to_delete):
+            data.pop(i)
+
+    print(f"Deleted {delnum} items")
+    yield f"(Backup created) Deleted {delnum} items that <= THreshold"
+    return
+
+
 
 def find_min_char_diff(characters):
     global data
@@ -284,23 +524,30 @@ def get_instruction_and_output():
 # Function to move the index forward
 def move_index_forward():
     global data_index
+    ndata = 2
     if data and isinstance(data, list) and data_index < len(data) - 1:
         data_index += 1
-    yield f"Current index: {data_index}/{len(data)-1}"    
+        ndata = len(data)
+    yield f"Current index: {data_index}/{ndata-1}"    
 
 # Function to move the index backward
 def move_index_backward():
     global data_index
+    ndata = 2
     if data and isinstance(data, list) and data_index > 0:
         data_index -= 1
+        ndata = len(data)
 
-    yield f"Current index: {data_index}/{len(data)-1}"
+    yield f"Current index: {data_index}/{ndata-1}"
 
 def rewindzero():
     global data_index
+    ndata = 2
     if data and isinstance(data, list) and data_index > 0:
         data_index = 0
-    yield f"Current index: {data_index}/{len(data)-1}"
+        ndata = len(data)
+
+    yield f"Current index: {data_index}/{ndata-1}"
 
 def set_instruction_and_output(instruction, output):
     global data
@@ -369,21 +616,25 @@ def save_updated_data_to_file():
             Path('logs').mkdir()
 
         filename = os.path.basename(current_input_file)
+        # filepath is a Path object
         filepath = Path(f'logs/{filename}')
 
-
         try:
-            with open(filepath, 'w') as json_file:
+            with open(filepath, 'w', encoding='utf-8') as json_file:
                 json.dump(data, json_file, indent=4)  # Save the updated data back to the file
-            yield f"Updated JSON data saved to {filepath}.",filepath
+            # Convert filepath to string before yielding it
+            yield f"Updated JSON data saved to {filepath}.", str(filepath)
         except FileNotFoundError:
-            yield f"Error: File not found: {filepath}.",None
+            # For error cases, returning None for the file output is usually fine,
+            # or an empty string if you want to clear the file component visually.
+            yield f"Error: File not found: {filepath}.", None
         except json.JSONDecodeError:
-            yield f"Error: Invalid JSON data in file: {filepath}.",None
+            yield f"Error: Invalid JSON data in file: {filepath}.", None
         except Exception as e:
-            yield f"An error occurred while saving the data: {str(e)}.",None
+            yield f"An error occurred while saving the data: {str(e)}.", None
     else:
-        yield "No data to save or current input file is missing.",None
+        yield "No data to save or current input file is missing.", None
+
 
 def save_updated_data_to_backup_file():
     global data
@@ -400,7 +651,7 @@ def save_updated_data_to_backup_file():
 
 
         try:
-            with open(backup_file, 'w') as json_file:
+            with open(backup_file, 'w',  encoding='utf-8') as json_file:
                 json.dump(data, json_file, indent=4)  # Save the updated data back to the file
             yield f"Updated JSON data saved to {backup_file}."
         except FileNotFoundError:
@@ -444,12 +695,11 @@ def create_delete_buttons(delete_function, outputs):
 
 def ui():
     global params
-
     with gr.Row():
         with gr.Column():
             with gr.Row():
                 with gr.Column():
-                    upload_session_file = gr.File(type='file', file_types=['.json'], label='Load JSON')
+                    upload_session_file = gr.File(type='filepath', file_types=['.json'], label='Load JSON')
                     with gr.Row():    
                         json_file = gr.Textbox(label="JSON File", value='')
                         json_file_load = gr.Button("Load JSON",elem_classes="small-button",  variant='primary')
@@ -475,7 +725,14 @@ def ui():
                     with gr.Row():
                         rewind_btn = gr.Button('Go to First item', elem_classes="small-button")
                         find_next = gr.Button('Next 50% I/R Diff', elem_classes="small-button") 
-                        calc_max_token = gr.Button('Find longest item', elem_classes="small-button")   
+                        del_find_next = gr.Button('[DEL] All 50% I/R Diff', elem_classes="small-button") 
+                        calc_max_token = gr.Button('Find longest item', elem_classes="small-button")
+                        swap_in_out = gr.Button('Swap all <<->>', elem_classes="small-button")
+                    with gr.Row():
+                        find_repeated = gr.Button("Repeating Words", elem_classes="small-button")
+                        find_next75 = gr.Button('Next THR I/R Diff', elem_classes="small-button")
+                        del_find_next75 = gr.Button('[DEL] ALL THR I/R Diff', elem_classes="small-button")  
+                        next_threshold = gr.Slider(label = "THR", minimum=0,maximum=1,value=0.5, step = 0.02)
                     with gr.Row():
                         length_char = gr.Slider(label='Number of characters [NC]', minimum=1, maximum=2048, value=256, step=1)
                         find_min_char = gr.Button("[I/R] Less than NC", elem_classes="small-button", variant='secondary')
@@ -495,13 +752,14 @@ def ui():
                 del_button_yes = gr.Button('Yes',visible=False, elem_classes="small-button", variant='stop')
                 del_button_no = gr.Button('No',visible=False, elem_classes="small-button", variant='primary')
                 save_btn = gr.Button('Save JSON', elem_classes="small-button",variant='primary')
-                save_file_down = gr.File(type='file', file_types=['.json'], visible = False)
+                save_file_down = gr.File(type='filepath', file_types=['.json'], visible = False)
             with gr.Row():
                 backup_btn = gr.Button("Backup", elem_classes="small-button", variant='secondary')
                 restore_btn = gr.Button("Restore", elem_classes="small-button", variant='secondary')
                 restore_button_yes = gr.Button('Yes',visible=False, elem_classes="small-button", variant='stop')
                 restore_button_no = gr.Button('No',visible=False, elem_classes="small-button", variant='primary')
  
+    
     def file_dropped(file_obj):
         #file_obj.name orig_name
         global current_input_file
@@ -518,11 +776,11 @@ def ui():
     def adjust_slider_params():
         global data_index
         global data
-        max = 0
+        max = 2
         if data:
             max = len(data)
 
-        return gr.Slider.update(value = data_index, minimum=0, maximum=len(data)-1, step=1)
+        return gr.Slider.update(value = data_index, minimum=0, maximum=max-1, step=1)
 
     def adjust_slider_value():
         global data_index
@@ -556,10 +814,11 @@ def ui():
 
     
     def make_file_visible():
-        return gr.update(visible = True)
+        return gr.update(visible = True) 
+
     
     save_btn.click(save_updated_data_to_file,None,[instruct,save_file_down]).then(make_file_visible,None,save_file_down)
-
+ 
     left_text.change(set_instruction_and_output,[left_text,right_text],None)
     right_text.change(set_instruction_and_output,[left_text,right_text],None)
 
@@ -583,7 +842,13 @@ def ui():
 
     find_next.click(find_next_diff,None,instruct).then(get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_value,None,gr_sliderPos, show_progress=False)
 
+    find_repeated.click(find_next_conseq,None,instruct).then(get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_value,None,gr_sliderPos, show_progress=False)
 
+    find_next75.click(find_next_diff75,next_threshold,instruct).then(get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_value,None,gr_sliderPos, show_progress=False)
+
+    del_find_next.click(find_next_diff_del,None,instruct).then(get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_value,None,gr_sliderPos, show_progress=False)
+
+    del_find_next75.click(find_next_diff_del75,next_threshold,instruct).then(get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_value,None,gr_sliderPos, show_progress=False)
 
     find_min_char.click(find_min_char_diff,length_char,instruct).then(get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_value,None,gr_sliderPos, show_progress=False)
 
@@ -592,6 +857,8 @@ def ui():
 
 
     calc_max_token.click(calc_max_token_fn,None,instruct).then(get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_value,None,gr_sliderPos, show_progress=False)
+
+    swap_in_out.click(swapinout,None,None).then(get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_value,None,gr_sliderPos, show_progress=False)
 
 
     searchA.click(search_and_update_data_index,search_text,instruct).then(get_instruction_and_output,None,[left_text,right_text]).then(adjust_slider_value,None,gr_sliderPos, show_progress=False)
