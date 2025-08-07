@@ -9,7 +9,7 @@ extension to edit json datasets with search etc - WIP
 This Gradio extension for oobabooga WebUi provides a powerful interface for reviewing, editing, and cleaning your JSON datasets, especially those formatted with "instruction" and "output" pairs, common for training AI models. Think of it as a specialized text editor for your dataset.
 
 
-There is a full manual in "The Cranky Man's Guide to LoRA & QLoRA" 
+There is a manual in Appendix of "The Cranky Man's Guide to LoRA & QLoRA" 
 
 <img height="200" alt="The Cranky Man's Guide to LoRA & QLoRA" src="https://github.com/user-attachments/assets/afdbaae1-54a6-421f-a52c-ce6ea4477514" />
 
